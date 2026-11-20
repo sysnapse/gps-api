@@ -1,0 +1,47 @@
+# gps-api —— 手機 GPS 上報與查詢
+# 部署位置：Pi 4B（家居，192.168.1.100）
+# 只綁 loopback；由同機 Traefik（192.168.1.100:443，2026-11-18 實測為對外終結者）反代。
+# 前置：docker network connect <traefik 的 network> gps-api（見 traefik-gps.yml 註解）
+# 不對 LAN、不對公網直接開 port。
+
+services:
+  gps-api:
+    image: python:3.12-slim
+    container_name: gps-api
+    restart: unless-stopped
+    command: ["python3", "/app/app.py"]
+    working_dir: /app
+    environment:
+      TZ: Asia/Hong_Kong
+      DB_PATH: /data/gps.db
+      PLACES_FILE: /data/places.json
+      LISTEN_PORT: "8095"
+      RAW_RETENTION_DAYS: "7"
+      KEEP_AGGREGATES: "1"
+      AGG_RUN_HOUR_HKT: "3"
+      RECENT_WINDOW_MIN: "120"
+      GEOCODE: "0"           # 想自動命名未登記地點就設 "1"
+      INFER_ENABLED: "1"
+      INFER_ROUTES: "968X,968,978,P968"   # 只同步這些路線做「在哪班巴士」推斷
+      INFER_WINDOW_MIN: "45"
+      INFER_MIN_SPEED_KMH: "12"
+      INGEST_USER: "gpsphone"
+      INGEST_PASS: "${INGEST_PASS:?set INGEST_PASS in .env}"
+      TOKEN_FULL: "${TOKEN_FULL:?set TOKEN_FULL in .env}"
+      TOKEN_RECENT: "${TOKEN_RECENT:?set TOKEN_RECENT in .env}"
+    ports:
+      - "127.0.0.1:8095:8095"
+    volumes:
+      - /srv/gps/app.py:/app/app.py:ro
+      - /srv/gps/data:/data
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8095/healthz',timeout=3)"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -1,0 +1,44 @@
+# Traefik 路由：gps.example.com（file provider 用）
+#
+# 前提更正（2026-11-18 21:31 實測）：Pi 4B 對外終結者是 Traefik，不是 nginx。
+#   https://203.0.113.10:8443/  -> 404、Content-Length 0、無 Server header
+#   http://…:8443/                -> 400 "This combination of host and port requires TLS."（Traefik 固定字串）
+#   UniFi port forward：home-https-expose = WAN 8443 -> 192.168.1.100:443
+#
+# 用法：放進 Traefik 的 dynamic config 目錄（例如 /etc/traefik/dynamic/gps.yml），
+#       file provider 會自動載入，不需 restart。
+#
+# 要照你實查改的兩處：
+#   1) entryPoints —— 本檔寫 websecure；實查 docker inspect | grep -i entrypoint
+#   2) servers[0].url —— 預設 http://gps-api:8095，要求 gps-api 與 Traefik 同一 docker network：
+#        docker network connect <traefik 的 network> gps-api
+#      若不願共用 network，改成 http://192.168.1.100:8095，
+#      同時把 docker-compose.yml 的 ports 改為 "192.168.1.100:8095:8095"。
+
+http:
+  routers:
+    gps:
+      rule: "Host(`gps.example.com`)"
+      entryPoints:
+        - websecure
+      service: gps
+      # 憑證沿用 Traefik 現有 default／resolver；若 Grafana 那台有指定 certResolver 就照抄
+      tls: {}
+    gps-redirect:
+      rule: "Host(`gps.example.com`)"
+      entryPoints:
+        - web
+      middlewares:
+        - gps-to-https
+      service: gps
+  services:
+    gps:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          - url: "http://gps-api:8095"
+  middlewares:
+    gps-to-https:
+      redirectScheme:
+        scheme: https
+        permanent: true
